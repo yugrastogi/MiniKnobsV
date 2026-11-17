@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#AB7248">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MiniKnobsV">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>MiniKnobsV</title>
+<style>
+@font-face { font-family: "Montserrat"; font-weight: 400; font-display: swap;
+  src: url(fonts/montserrat-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Montserrat"; font-weight: 500; font-display: swap;
+  src: url(fonts/montserrat-latin-500-normal.woff2) format("woff2"); }
+
+:root {
+  --silk: #EDE9DD;
+  --silk-dim: rgba(237, 233, 221, 0.62);
+  --accent: #D9642A;               /* the orange rocker switches on the Mini V */
+  --plate: #3A3D40;
+  --plate-edge: #121314;
+  --sans: "Montserrat", "Helvetica Neue", Arial, sans-serif;
+  --wood:
+    repeating-linear-gradient(180deg, rgba(70,35,14,.18) 0 1px, transparent 1px 3px, rgba(255,205,160,.07) 3px 4px, transparent 4px 7px),
+    linear-gradient(180deg, #B97D4F 0%, #AB7248 50%, #9F6841 100%);
+  --noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='.07'/></svg>");
+  /* knob box incl. printed scale: limited by height, and by the width left for six columns */
+  --k: clamp(50px, min(30vh, calc((100vw - 250px) / 6 - 6px)), 118px);
+  --k-side: clamp(34px, calc((100vh - 150px) / 2), 52px);
+}
+/* Better: size the knobs from the knob plate itself, so the tab bar in Edit mode can't make the rows collide.
+   Two rows need about 2*(knob + 22px) + 30px padding. */
+@supports (height: 1cqh) {
+  :root { --k: clamp(46px, min(calc(50cqh - 45px), calc((100cqw - 16px) / 6 - 8px)), 118px); }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  display: flex; flex-direction: column;
+  background: var(--wood);
+  color: var(--silk);
+  font: 500 10px/1.15 var(--sans);
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+
+.svg-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.rotate-lock {
+  display: none; position: fixed; inset: 0; z-index: 99;
+  background: #1c1d1f; color: var(--silk);
+  flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 24px; text-align: center;
+}
+.rotate-lock h1 { margin: 0; font-size: 20px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; }
+.rotate-lock p { margin: 0; color: var(--silk-dim); font-size: 13px; }
+@media (orientation: portrait) and (max-width: 920px) {
+  .rotate-lock { display: flex; }
+}
+
+/* Page tabs + status: only shown while editing */
+header {
+  display: none; align-items: center; flex: none; z-index: 10;
+  background: #18191b; border-bottom: 1px solid #000;
+  padding-top: env(safe-area-inset-top);
+}
+body.editing header { display: flex; }
+#status { flex: none; padding: 0 calc(16px + env(safe-area-inset-right)) 0 8px; font-size: 11px; color: var(--silk-dim); white-space: nowrap; }
+.tabs {
+  display: flex; align-items: center; gap: 3px; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0;
+  padding: 3px 0 0 calc(16px + env(safe-area-inset-left)); touch-action: pan-x;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex: none; min-height: 26px; padding: 0 10px; background: #232527;
+  border: 1px solid #34373A; border-bottom: 0; border-radius: 2px 2px 0 0;
+  color: var(--silk-dim); font-weight: 500; font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+}
+.tab[aria-current="true"] { background: var(--plate); color: #fff; border-color: #4A4E52; box-shadow: inset 0 2px 0 var(--accent); }
+.tab.add-page { background: transparent; border-style: dashed; color: var(--silk-dim); }
+.tab-ch { margin-left: 6px; font-size: 9px; opacity: .6; letter-spacing: .06em; }
+
+/* Deck: wheel plate | knob plate | switch plate, all one height */
+.deck {
+  flex: 1; display: flex; min-height: 0; gap: 6px;
+  padding: calc(9px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(9px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+}
+/* Matte painted metal plate set into the wood case. No glow, only a hairline bevel. */
+.panel {
+  position: relative;
+  background: var(--noise), var(--plate);
+  border: 1px solid var(--plate-edge);
+  border-radius: 1px;
+  box-shadow: 0 1px 0 rgba(255,200,150,.14), 0 -1px 0 rgba(0,0,0,.35);
+}
+.screw {
+  position: absolute; width: 8px; height: 8px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #9A9A95, #4B4B48 70%, #2A2A29);
+  border: 1px solid #0b0b0b;
+}
+.screw::after { content: ""; position: absolute; left: 1px; right: 1px; top: 50%; height: 1px; margin-top: -.5px; background: #1a1a1a; transform: rotate(35deg); }
+.screw.tl { left: 5px; top: 5px; } .screw.tr { right: 5px; top: 5px; }
+.screw.bl { left: 5px; bottom: 5px; } .screw.br { right: 5px; bottom: 5px; }
+
+/* Printed panel text: small spaced caps, ink colour of the silkscreen */
+.sil { font-size: 9px; line-height: 15px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: var(--silk); text-align: center; white-space: nowrap; }
+.sil.sm { font-size: 7.5px; line-height: 11px; font-weight: 400; color: var(--silk-dim); letter-spacing: .14em; }
+
+/* ---------- Wheel plate ---------- */
+.wheel-plate { flex: none; width: 92px; display: flex; flex-direction: column; padding: 14px 8px 14px; }
+.wheels-pair { flex: 1; display: flex; justify-content: center; gap: 12px; min-height: 0; }
+.wheel-unit { display: flex; flex-direction: column; align-items: center; min-height: 0; }
+.wheel-unit .sil { margin-top: 4px; letter-spacing: .12em; }
+.wheel-val { font-size: 8px; line-height: 11px; font-variant-numeric: tabular-nums; color: var(--silk-dim); min-height: 11px; opacity: 0; }
+.wheel-unit.active .wheel-val { opacity: 1; }
+
+/* A real wheel seen edge-on through a slot: thin, tall, ridges drawn on a canvas so they bunch up at the ends */
+.wheel {
+  position: relative; flex: 1; width: 28px; min-height: 60px;
+  background: #0A0A0A; border: 3px solid #0A0A0A; border-radius: 2px;
+  box-shadow: 0 0 0 1px #3a3b3c;
+  overflow: hidden; touch-action: none; cursor: ns-resize;
+}
+.wheel-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* ---------- Knob plate: 12 knobs (2 rows x 6) ---------- */
+.main-plate {
+  flex: 1; min-width: 0; display: flex; container-type: size;
+  border-left: 3px solid #9C9E9A; border-right: 3px solid #9C9E9A;   /* worn metal edge strips */
+}
+.knob-grid {
+  position: relative; flex: 1; min-width: 0; display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  align-items: start; justify-items: center; gap: 2px 4px; padding: 14px 8px 14px;
+}
+.knob-grid .ctrl:nth-child(n+7) { align-self: end; }   /* row 1 hangs from the top, row 2 sits on the bottom, matching the side plates */
+/* thin printed rule between the two rows, like the section lines on the real panel */
+.knob-grid::before {
+  content: ""; position: absolute; left: 12px; right: 12px; top: 50%; height: 1px;
+  background: rgba(237,233,221,.3);
+}
+body.editing .knob-grid::before { display: none; }
+.ctrl { display: flex; flex-direction: column; align-items: center; position: relative; padding: 0 2px; }
+body.editing .ctrl { cursor: pointer; }
+.ctrl-lbl { font-size: 9px; line-height: 15px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--silk); white-space: nowrap; min-height: 15px; min-width: 48px; text-align: center; cursor: pointer; }
+body.editing .ctrl-lbl:empty::before { content: "tap to name"; opacity: .4; }
+.ctrl-val { font-size: 8px; line-height: 11px; font-variant-numeric: tabular-nums; color: var(--silk-dim); min-height: 11px; opacity: 0; }
+.ctrl.active .ctrl-val, body.editing .ctrl-val { opacity: 1; }
+
+/* Black pointer knob with brushed aluminium cap */
+.knob-wrap { position: relative; width: var(--k); height: var(--k); touch-action: none; cursor: grab; margin: -2px 0; }
+.knob-wrap > * { position: absolute; pointer-events: none; }
+.knob-base { inset: 0; width: 100%; height: 100%; }
+.knob-head { inset: 6%; will-change: transform; }
+.knob-base svg, .knob-head svg { width: 100%; height: 100%; display: block; }
+/* brushed aluminium cap, sits still while the black knob turns under the pointer */
+.knob-cap {
+  inset: 36%; border-radius: 50%; border: 1px solid #0A0908;
+  background:
+    repeating-radial-gradient(circle at 50% 50%, rgba(0,0,0,.08) 0 1px, rgba(255,255,255,.05) 1px 2px),
+    conic-gradient(from 25deg, #CFCFCD, #909090, #E4E4E2, #9A9A98, #D6D6D4, #8A8A88, #CFCFCD);
+}
+
+/* ---------- Switch plate: 2 side knobs (up & down) + edit rocker ---------- */
+.switch-plate {
+  flex: none; width: 74px; display: flex; flex-direction: column; align-items: center;
+  padding: 12px 4px 14px; container-type: size;
+}
+.side-knobs {
+  flex: 1; min-height: 0; width: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: space-evenly;
+  gap: 2px;
+}
+.side-knobs .ctrl { padding: 0; width: 100%; }
+.side-knobs .ctrl-lbl {
+  font-size: 7.5px; line-height: 12px; min-height: 12px; min-width: 0; max-width: 66px;
+  overflow: hidden; text-overflow: ellipsis; letter-spacing: .1em;
+}
+body.editing .side-knobs .ctrl-lbl:empty::before { content: "name"; }
+.side-knobs .knob-wrap { width: var(--k-side); height: var(--k-side); margin: -1px 0; }
+.side-knobs .ctrl-val { font-size: 7px; line-height: 9px; min-height: 9px; }
+
+@supports (height: 1cqh) {
+  .switch-plate { --k-side: clamp(32px, min(calc(34cqh - 26px), 52px), 52px); }
+}
+
+/* Rocker key like the Mini V's: blue-grey when off, orange when on */
+.perf-foot { margin-top: auto; flex: none; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.foot-row { position: relative; display: flex; justify-content: center; }
+.rocker {
+  position: relative; width: 44px; height: 24px; padding: 0; border-radius: 2px; border: 1px solid #12181B;
+  background: linear-gradient(180deg, #7C98A4 0 50%, #5C7885 50% 100%);
+  font-size: 0; touch-action: none;
+}
+.rocker::after { content: ""; position: absolute; inset: -8px; }   /* bigger touch target */
+.rocker.on, .rocker.edit-on { background: linear-gradient(180deg, #E8773A 0 50%, #C25623 50% 100%); border-color: #3A1707; }
+.status-dot { display: none; }
+
+/* Modal sheet */
+#scrim { position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 30; }
+#sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 31;
+  max-width: 480px; margin: 0 auto; max-height: 90vh; overflow-y: auto; touch-action: pan-y;
+  background: #202224; border-radius: 4px 4px 0 0; border-top: 2px solid var(--accent);
+  padding: 16px 18px calc(16px + env(safe-area-inset-bottom)); color: var(--silk);
+}
+#sheet[hidden], #scrim[hidden] { display: none; }
+#sheet h2 { margin: 0 0 12px; font-size: 15px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: #fff; }
+.field { display: block; margin-bottom: 12px; }
+.field > span { display: block; margin-bottom: 3px; color: var(--silk-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+input[type="text"], input[type="number"] {
+  width: 100%; min-height: 38px; padding: 0 10px; border-radius: 2px;
+  border: 1px solid #44484B; background: #151618; font-size: 16px; color: var(--silk);
+  -webkit-user-select: text; user-select: text;
+}
+.hint { margin: 5px 0 0; color: var(--silk-dim); font-size: 11px; }
+.btn {
+  min-height: 38px; padding: 0 14px; border-radius: 2px; border: 1px solid #44484B;
+  background: transparent; font-weight: 500; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--silk);
+}
+.btn.primary { background: var(--accent); border-color: #7A2F0C; color: #1A0C05; }
+.btn.danger { border-color: transparent; color: #D45656; padding: 0 6px; }
+.actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+</style>
+</head>
+<body>
+
+<!-- shared gradients for the knobs -->
+<svg class="svg-defs" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs>
+    <radialGradient id="pkSkirt" cx="40%" cy="32%" r="85%">
+      <stop offset="0" stop-color="#242423"/><stop offset="1" stop-color="#0D0D0D"/>
+    </radialGradient>
+    <radialGradient id="pkBody" cx="40%" cy="32%" r="85%">
+      <stop offset="0" stop-color="#1F1F1E"/><stop offset="1" stop-color="#0B0B0B"/>
+    </radialGradient>
+  </defs>
+</svg>
+
+<div class="rotate-lock" role="alert">
+  <h1>Rotate Phone To Landscape</h1>
+  <p>MiniKnobsV requires landscape orientation.</p>
+</div>
+
+<header>
+  <nav class="tabs" id="tabs" aria-label="Pages"></nav>
+  <span id="status">Connecting…</span>
+</header>
+
+<div class="deck">
+  <aside class="wheel-plate panel" aria-label="Wheels">
+    <i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
+    <div class="wheels-pair">
+      <div class="wheel-unit">
+        <div class="wheel pitch" id="pitch-slot" role="slider" aria-label="Pitch bend" tabindex="0">
+          <canvas class="wheel-canvas" id="pitch-surface"></canvas>
+        </div>
+        <div class="sil">Bend</div>
+        <div class="wheel-val" id="pitch-val">0</div>
+      </div>
+      <div class="wheel-unit">
+        <div class="wheel mod" id="mod-slot" role="slider" aria-label="Mod wheel" tabindex="0">
+          <canvas class="wheel-canvas" id="mod-surface"></canvas>
+        </div>
+        <div class="sil">Mod</div>
+        <div class="wheel-val" id="mod-val">0</div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-plate panel">
+    <i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
+    <main class="knob-grid" id="knob-grid"></main>
+  </div>
+
+  <aside class="switch-plate panel" aria-label="Switches">
+    <i class="screw tl"></i><i class="screw tr"></i><i class="screw bl"></i><i class="screw br"></i>
+    <div class="side-knobs" id="side-knobs" aria-label="Additional knobs"></div>
+    <div class="perf-foot">
+      <span class="sil">Edit</span>
+      <div class="foot-row">
+        <span class="status-dot" id="dot" hidden></span>
+        <button class="rocker" id="edit" type="button" aria-label="Edit mode">Edit</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div id="scrim" hidden></div>
+<section id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden></section>
+
+<script src="app.js"></script>
+<script src="sheets.js"></script>
+</body>
+</html>

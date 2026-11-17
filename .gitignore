@@ -1,0 +1,7 @@
+node_modules/
+layouts.v2.json
+layouts.v*-backup.json
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/local.properties

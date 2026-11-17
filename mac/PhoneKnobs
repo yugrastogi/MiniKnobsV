@@ -1,0 +1,40 @@
+#!/bin/bash
+# Launcher inside Phone Knobs.app: starts the server, shows the phone address, quits it again on Quit.
+APP_DIR="$(cd "$(dirname "$0")/../Resources/app" && pwd)"
+export PK_DATA_DIR="$HOME/Library/Application Support/Phone Knobs"
+mkdir -p "$PK_DATA_DIR"
+LOG="$PK_DATA_DIR/log.txt"
+
+say() { osascript -e "display dialog \"$1\" with title \"Phone Knobs\" buttons {\"OK\"} default button \"OK\"" >/dev/null 2>&1; }
+
+# Find Node.js: common install spots first, then whatever the user's shell finds.
+NODE=""
+for p in /opt/homebrew/bin/node /usr/local/bin/node; do [ -x "$p" ] && NODE="$p" && break; done
+[ -z "$NODE" ] && NODE="$(/bin/zsh -ilc 'command -v node' 2>/dev/null | tail -1)"
+if [ -z "$NODE" ] || [ ! -x "$NODE" ]; then
+  say "Node.js is not installed. Install the LTS version from nodejs.org, then open Phone Knobs again."
+  open "https://nodejs.org"
+  exit 1
+fi
+
+cd "$APP_DIR" || exit 1
+"$NODE" server.js > "$LOG" 2>&1 &
+SERVER=$!
+trap 'kill $SERVER 2>/dev/null' EXIT INT TERM
+sleep 1.5
+
+if ! kill -0 $SERVER 2>/dev/null; then
+  say "Phone Knobs could not start. It may already be running, or port 3000 is in use. Details are in: $LOG"
+  exit 1
+fi
+
+IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"
+if [ -n "$IP" ]; then URL="http://$IP:3000"; else URL="http://localhost:3000"; fi
+
+while kill -0 $SERVER 2>/dev/null; do
+  R="$(osascript -e "display dialog \"Phone Knobs is running.\n\nOpen on your phone:\n$URL\n\nIn FL Studio, enable the MIDI input called Phone Knobs.\nQuit stops it and removes the MIDI port.\" with title \"Phone Knobs\" buttons {\"Copy address\", \"Quit\"} default button \"Quit\"" 2>/dev/null)"
+  case "$R" in
+    *"Copy address"*) printf %s "$URL" | pbcopy ;;
+    *) break ;;
+  esac
+done
